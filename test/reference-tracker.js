@@ -41,6 +41,26 @@ describe("The 'ReferenceTracker' class:", () => {
             },
             {
                 description:
+                    "should iterate the references of a given single level wildcard.",
+                code: "var x = Object; { let Object; var y = Object }",
+                traceMap: {
+                    [ReferenceTracker.SingleLevelWildcard]: {
+                        [READ]: 1,
+                        foo: { [CALL]: 2 },
+                        Foo: { [CONSTRUCT]: 3 },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "Identifier" },
+                        path: ["Object"],
+                        type: READ,
+                        info: 1,
+                    },
+                ],
+            },
+            {
+                description:
                     "should iterate the member references of a given global variable, with MemberExpression",
                 code: [
                     "Object.a; Object.a(); new Object.a();",
@@ -84,6 +104,40 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["Object", "c"],
                         type: CONSTRUCT,
                         info: 3,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate any member references of a given global variable, with MemberExpression",
+                code: [
+                    "Object.a; Object.a(); new Object.a();",
+                    "Object.b; Object.b(); new Object.b();",
+                    "Object.c; Object.c(); new Object.c();",
+                ].join("\n"),
+                traceMap: {
+                    Object: {
+                        [ReferenceTracker.SingleLevelWildcard]: { [CALL]: 1 },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object", "a"],
+                        type: CALL,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object", "b"],
+                        type: CALL,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object", "c"],
+                        type: CALL,
+                        info: 1,
                     },
                 ],
             },
@@ -170,6 +224,43 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["Object", "c"],
                         type: CONSTRUCT,
                         info: 3,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate any member references of a given global variable, with VariableDeclarator 2",
+                code: [
+                    "var x = Object, a = x.a, b = x.b, c = x.c;",
+                    "a; a(); new a();",
+                    "b; b(); new b();",
+                    "c; c(); new c();",
+                ].join("\n"),
+                traceMap: {
+                    Object: {
+                        [ReferenceTracker.SingleLevelWildcard]: {
+                            [CONSTRUCT]: 1,
+                        },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "NewExpression" },
+                        path: ["Object", "a"],
+                        type: CONSTRUCT,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "NewExpression" },
+                        path: ["Object", "b"],
+                        type: CONSTRUCT,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "NewExpression" },
+                        path: ["Object", "c"],
+                        type: CONSTRUCT,
+                        info: 1,
                     },
                 ],
             },

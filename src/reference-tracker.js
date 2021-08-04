@@ -9,6 +9,8 @@ export const READ = Symbol("read")
 export const CALL = Symbol("call")
 export const CONSTRUCT = Symbol("construct")
 export const ESM = Symbol("esm")
+export const MultiLevelWildcard = Symbol("MultiLevelWildcard")
+export const SingleLevelWildcard = Symbol("SingleLevelWildcard")
 
 const requireCall = { require: { [CALL]: true } }
 
@@ -50,6 +52,17 @@ function isPassThrough(node) {
 }
 
 /**
+ * Get own property names and symbols of the given object.
+ * @param {object} object
+ * @returns {(string | symbol)[]} Own property names and symbols.
+ */
+function ownKeys(object) {
+    return Object.getOwnPropertyNames(object).concat(
+        Object.getOwnPropertySymbols(object),
+    )
+}
+
+/**
  * The reference tracker.
  */
 export class ReferenceTracker {
@@ -57,6 +70,8 @@ export class ReferenceTracker {
      * Initialize this tracker.
      * @param {Scope} globalScope The global scope.
      * @param {object} [options] The options.
+     * @param {symbol} [options.multiLevelWildcard]
+     * @param {symbol} [options.singleLevelWildcard]
      * @param {"legacy"|"strict"} [options.mode="strict"] The mode to determine the ImportDeclaration's behavior for CJS modules.
      * @param {string[]} [options.globalObjectNames=["global","globalThis","self","window"]] The variable names for Global Object.
      */
@@ -64,6 +79,8 @@ export class ReferenceTracker {
         globalScope,
         {
             mode = "strict",
+            multiLevelWildcard = MultiLevelWildcard,
+            singleLevelWildcard = SingleLevelWildcard,
             globalObjectNames = ["global", "globalThis", "self", "window"],
         } = {},
     ) {
@@ -71,15 +88,52 @@ export class ReferenceTracker {
         this.globalScope = globalScope
         this.mode = mode
         this.globalObjectNames = globalObjectNames.slice(0)
+        this.multiLevelWildcard = multiLevelWildcard
+        this.singleLevelWildcard = singleLevelWildcard
     }
 
     /**
      * Iterate the references of global variables.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
     *iterateGlobalReferences(traceMap) {
-        for (const key of Object.keys(traceMap)) {
+        for (const key of ownKeys(traceMap)) {
+            if (
+                key === this.singleLevelWildcard ||
+                key === this.multiLevelWildcard
+            ) {
+                const nextTraceMap = traceMap[key]
+                const variableEntries = Array.from(this.globalScope.set)
+
+                for (const variableEntry of variableEntries) {
+                    if (isModifiedGlobal(variableEntry[1])) {
+                        continue
+                    }
+
+                    const variable = variableEntry[1]
+                    const path = [variableEntry[0]]
+
+                    yield* this._iterateVariableReferences(
+                        variable,
+                        path,
+                        nextTraceMap,
+                        true,
+                    )
+
+                    if (key === this.multiLevelWildcard) {
+                        yield* this._iterateVariableReferences(
+                            variable,
+                            path,
+                            traceMap,
+                            true,
+                        )
+                    }
+                }
+
+                continue
+            }
+
             const nextTraceMap = traceMap[key]
             const path = [key]
             const variable = this.globalScope.set.get(key)
@@ -116,17 +170,27 @@ export class ReferenceTracker {
     /**
      * Iterate the references of CommonJS modules.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
     *iterateCjsReferences(traceMap) {
         for (const { node } of this.iterateGlobalReferences(requireCall)) {
             const key = getStringIfConstant(node.arguments[0])
-            if (key == null || !has(traceMap, key)) {
+            if (key == null) {
                 continue
             }
 
-            const nextTraceMap = traceMap[key]
             const path = [key]
+            let nextTraceMap = null
+
+            if (has(traceMap, key)) {
+                nextTraceMap = traceMap[key]
+            } else if (has(traceMap, this.singleLevelWildcard)) {
+                nextTraceMap = traceMap[this.singleLevelWildcard]
+            }
+
+            if (nextTraceMap == null) {
+                continue
+            }
 
             if (nextTraceMap[READ]) {
                 yield {
@@ -143,8 +207,9 @@ export class ReferenceTracker {
     /**
      * Iterate the references of ES modules.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
+    // eslint-disable-next-line complexity
     *iterateEsmReferences(traceMap) {
         const programNode = this.globalScope.block
 
@@ -154,18 +219,32 @@ export class ReferenceTracker {
             }
             const moduleId = node.source.value
 
-            if (!has(traceMap, moduleId)) {
+            const path = [moduleId]
+            let nextTraceMap = null
+
+            if (has(traceMap, moduleId)) {
+                nextTraceMap = traceMap[moduleId]
+            } else if (has(traceMap, this.singleLevelWildcard)) {
+                nextTraceMap = traceMap[this.singleLevelWildcard]
+            }
+
+            if (nextTraceMap == null) {
                 continue
             }
-            const nextTraceMap = traceMap[moduleId]
-            const path = [moduleId]
 
             if (nextTraceMap[READ]) {
                 yield { node, path, type: READ, info: nextTraceMap[READ] }
             }
 
             if (node.type === "ExportAllDeclaration") {
-                for (const key of Object.keys(nextTraceMap)) {
+                for (const key of ownKeys(nextTraceMap)) {
+                    if (
+                        key === this.multiLevelWildcard ||
+                        key === this.singleLevelWildcard
+                    ) {
+                        continue
+                    }
+
                     const exportTraceMap = nextTraceMap[key]
                     if (exportTraceMap[READ]) {
                         yield {
@@ -178,7 +257,7 @@ export class ReferenceTracker {
                 }
             } else {
                 for (const specifier of node.specifiers) {
-                    const esm = has(nextTraceMap, ESM)
+                    const esm = nextTraceMap[ESM]
                     const it = this._iterateImportReferences(
                         specifier,
                         path,
@@ -213,7 +292,7 @@ export class ReferenceTracker {
      * @param {string[]} path The current path.
      * @param {object} traceMap The trace map.
      * @param {boolean} shouldReport = The flag to report those references.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
     *_iterateVariableReferences(variable, path, traceMap, shouldReport) {
         if (this.variableStack.includes(variable)) {
@@ -242,7 +321,7 @@ export class ReferenceTracker {
      * @param rootNode The AST node to iterate references.
      * @param {string[]} path The current path.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
     //eslint-disable-next-line complexity
     *_iteratePropertyReferences(rootNode, path, traceMap) {
@@ -255,12 +334,26 @@ export class ReferenceTracker {
         if (parent.type === "MemberExpression") {
             if (parent.object === node) {
                 const key = getPropertyName(parent)
-                if (key == null || !has(traceMap, key)) {
+                if (key == null) {
+                    return
+                }
+
+                let nextTraceMap = null
+                let isMultiWildcard = false
+                if (has(traceMap, key)) {
+                    nextTraceMap = traceMap[key]
+                } else if (has(traceMap, this.singleLevelWildcard)) {
+                    nextTraceMap = traceMap[this.singleLevelWildcard]
+                } else if (has(traceMap, this.multiLevelWildcard)) {
+                    isMultiWildcard = true
+                    nextTraceMap = traceMap[this.multiLevelWildcard]
+                }
+
+                if (nextTraceMap == null) {
                     return
                 }
 
                 path = path.concat(key) //eslint-disable-line no-param-reassign
-                const nextTraceMap = traceMap[key]
                 if (nextTraceMap[READ]) {
                     yield {
                         node: parent,
@@ -274,6 +367,13 @@ export class ReferenceTracker {
                     path,
                     nextTraceMap,
                 )
+                if (isMultiWildcard) {
+                    yield* this._iteratePropertyReferences(
+                        parent,
+                        path,
+                        traceMap,
+                    )
+                }
             }
             return
         }
@@ -319,7 +419,7 @@ export class ReferenceTracker {
      * @param {Node} patternNode The Pattern node to iterate references.
      * @param {string[]} path The current path.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
     *_iterateLhsReferences(patternNode, path, traceMap) {
         if (patternNode.type === "Identifier") {
@@ -338,12 +438,26 @@ export class ReferenceTracker {
             for (const property of patternNode.properties) {
                 const key = getPropertyName(property)
 
-                if (key == null || !has(traceMap, key)) {
+                if (key == null) {
+                    continue
+                }
+
+                let nextTraceMap = null
+                let isMultiWildcard = false
+                if (has(traceMap, key)) {
+                    nextTraceMap = traceMap[key]
+                } else if (has(traceMap, this.singleLevelWildcard)) {
+                    nextTraceMap = traceMap[this.singleLevelWildcard]
+                } else if (has(traceMap, this.multiLevelWildcard)) {
+                    isMultiWildcard = true
+                    nextTraceMap = traceMap[this.multiLevelWildcard]
+                }
+
+                if (nextTraceMap == null) {
                     continue
                 }
 
                 const nextPath = path.concat(key)
-                const nextTraceMap = traceMap[key]
                 if (nextTraceMap[READ]) {
                     yield {
                         node: property,
@@ -357,6 +471,13 @@ export class ReferenceTracker {
                     nextPath,
                     nextTraceMap,
                 )
+                if (isMultiWildcard) {
+                    yield* this._iterateLhsReferences(
+                        property.value,
+                        nextPath,
+                        traceMap,
+                    )
+                }
             }
             return
         }
@@ -370,8 +491,9 @@ export class ReferenceTracker {
      * @param {Node} specifierNode The ModuleSpecifier node to iterate references.
      * @param {string[]} path The current path.
      * @param {object} traceMap The trace map.
-     * @returns {IterableIterator<{node:Node,path:string[],type:symbol,info:any}>} The iterator to iterate references.
+     * @returns {IterableIterator<{node:Node,path:(string | symbol)[],type:symbol,info:any}>} The iterator to iterate references.
      */
+    // eslint-disable-next-line complexity
     *_iterateImportReferences(specifierNode, path, traceMap) {
         const type = specifierNode.type
 
@@ -380,12 +502,23 @@ export class ReferenceTracker {
                 type === "ImportDefaultSpecifier"
                     ? "default"
                     : specifierNode.imported.name
-            if (!has(traceMap, key)) {
+
+            let nextTraceMap = null
+            let isMultiWildcard = false
+            if (has(traceMap, key)) {
+                nextTraceMap = traceMap[key]
+            } else if (has(traceMap, this.singleLevelWildcard)) {
+                nextTraceMap = traceMap[this.singleLevelWildcard]
+            } else if (has(traceMap, this.multiLevelWildcard)) {
+                isMultiWildcard = true
+                nextTraceMap = traceMap[this.multiLevelWildcard]
+            }
+
+            if (nextTraceMap == null) {
                 return
             }
 
             path = path.concat(key) //eslint-disable-line no-param-reassign
-            const nextTraceMap = traceMap[key]
             if (nextTraceMap[READ]) {
                 yield {
                     node: specifierNode,
@@ -400,6 +533,14 @@ export class ReferenceTracker {
                 nextTraceMap,
                 false,
             )
+            if (isMultiWildcard) {
+                yield* this._iterateVariableReferences(
+                    findVariable(this.globalScope, specifierNode.local),
+                    path,
+                    traceMap,
+                    false,
+                )
+            }
 
             return
         }
@@ -416,12 +557,21 @@ export class ReferenceTracker {
 
         if (type === "ExportSpecifier") {
             const key = specifierNode.local.name
-            if (!has(traceMap, key)) {
+
+            let nextTraceMap = null
+            if (has(traceMap, key)) {
+                nextTraceMap = traceMap[key]
+            } else if (has(traceMap, this.singleLevelWildcard)) {
+                nextTraceMap = traceMap[this.singleLevelWildcard]
+            } else if (has(traceMap, this.multiLevelWildcard)) {
+                nextTraceMap = traceMap[this.multiLevelWildcard]
+            }
+
+            if (nextTraceMap == null) {
                 return
             }
 
             path = path.concat(key) //eslint-disable-line no-param-reassign
-            const nextTraceMap = traceMap[key]
             if (nextTraceMap[READ]) {
                 yield {
                     node: specifierNode,
@@ -438,6 +588,8 @@ ReferenceTracker.READ = READ
 ReferenceTracker.CALL = CALL
 ReferenceTracker.CONSTRUCT = CONSTRUCT
 ReferenceTracker.ESM = ESM
+ReferenceTracker.MultiLevelWildcard = MultiLevelWildcard
+ReferenceTracker.SingleLevelWildcard = SingleLevelWildcard
 
 /**
  * This is a predicate function for Array#filter.
