@@ -1,10 +1,57 @@
-# eslint-utils
+# eslint-utils2
 
-[![npm version](https://img.shields.io/npm/v/eslint-utils.svg)](https://www.npmjs.com/package/eslint-utils)
-[![Downloads/month](https://img.shields.io/npm/dm/eslint-utils.svg)](http://www.npmtrends.com/eslint-utils)
-[![Build Status](https://github.com/mysticatea/eslint-utils/workflows/CI/badge.svg)](https://github.com/mysticatea/eslint-utils/actions)
-[![Coverage Status](https://codecov.io/gh/mysticatea/eslint-utils/branch/master/graph/badge.svg)](https://codecov.io/gh/mysticatea/eslint-utils)
-[![Dependency Status](https://david-dm.org/mysticatea/eslint-utils.svg)](https://david-dm.org/mysticatea/eslint-utils)
+[![npm version](https://img.shields.io/npm/v/eslint-utils2.svg)](https://www.npmjs.com/package/eslint-utils2)
+[![Downloads/month](https://img.shields.io/npm/dm/eslint-utils2.svg)](http://www.npmtrends.com/eslint-utils2)
+[![Build Status](https://github.com/imhele/eslint-utils/workflows/CI/badge.svg)](https://github.com/imhele/eslint-utils/actions)
+[![Coverage Status](https://codecov.io/gh/imhele/eslint-utils/branch/master/graph/badge.svg)](https://codecov.io/gh/imhele/eslint-utils)
+[![Dependency Status](https://david-dm.org/imhele/eslint-utils.svg)](https://david-dm.org/imhele/eslint-utils)
+
+在 [eslint-utils](https://github.com/mysticatea/eslint-utils) 基础上优化 ReferenceTracker ，以支持通配符，例如：
+
+```js
+import { ReferenceTracker } from "eslint-utils";
+
+export default {
+  meta: {},
+  create(context) {
+    return {
+      "Program:exit"() {
+        const tracker = new ReferenceTracker(context.getScope());
+        const traceMap = {
+          // Find `console.*` .
+          console: {
+            [ReferenceTracker.SingleLevelWildcard]: {
+              [ReferenceTracker.READ]: true,
+            },
+          },
+          // Find `Object.prototype.**.bind()` .
+          Object: {
+            prototype: {
+              [ReferenceTracker.MultiLevelWildcard]: {
+                bind: {
+                  [ReferenceTracker.CALL]: true,
+                },
+              },
+            },
+          },
+        };
+
+        for (const { node, path } of tracker.iterateGlobalReferences(
+          traceMap
+        )) {
+          context.report({
+            node,
+            message: "disallow {{name}}.",
+            data: { name: path.join(".") },
+          });
+        }
+      },
+    };
+  },
+};
+```
+
+> 以下是 [eslint-utils](https://github.com/mysticatea/eslint-utils) README 原文。
 
 ## 🏁 Goal
 
