@@ -3,13 +3,12 @@ import eslint from "eslint"
 import semver from "semver"
 import { CALL, CONSTRUCT, ESM, READ, ReferenceTracker } from "../src/"
 
+const isESLint6 = semver.gte(eslint.Linter.version, "6.0.0")
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 const config = {
     parserOptions: {
-        ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-            ? 2022
-            : semver.gte(eslint.Linter.version, "6.0.0")
-            ? 2020
-            : 2018,
+        ecmaVersion: isESLint7 ? 2022 : isESLint6 ? 2020 : 2018,
         sourceType: "module",
     },
     globals: { Reflect: false },
@@ -62,7 +61,7 @@ describe("The 'ReferenceTracker' class:", () => {
             {
                 description:
                     "should iterate the references of a given multi level wildcard.",
-                code: "var x = Object; var y = Object.freeze; Object(); new Object()",
+                code: "var x = Object; var y = Object.freeze[unknown]; Object(); new Object()",
                 traceMap: {
                     [ReferenceTracker.MultiLevelWildcard]: {
                         [READ]: 1,
@@ -362,10 +361,11 @@ describe("The 'ReferenceTracker' class:", () => {
                 description:
                     "should iterate the member references of a given global variable, with destructuring",
                 code: [
-                    "var {a, b, c} = Object;",
+                    "var {a, b, c, d} = Object;",
                     "a; a(); new a();",
                     "b; b(); new b();",
                     "c; c(); new c();",
+                    "d; d(); new d();",
                 ].join("\n"),
                 traceMap: {
                     Object: {
@@ -392,6 +392,42 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["Object", "c"],
                         type: CONSTRUCT,
                         info: 3,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate any member references of a given global variable, with destructuring",
+                code: ["var {a} = Object;", "a();"].join("\n"),
+                traceMap: {
+                    Object: {
+                        [ReferenceTracker.SingleLevelWildcard]: { [CALL]: 2 },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object", "a"],
+                        type: CALL,
+                        info: 2,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate any member references of a given global variable, with destructuring",
+                code: ["var {a} = Object;", "a.b();"].join("\n"),
+                traceMap: {
+                    Object: {
+                        [ReferenceTracker.MultiLevelWildcard]: { [CALL]: 2 },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object", "a", "b"],
+                        type: CALL,
+                        info: 2,
                     },
                 ],
             },
@@ -666,7 +702,7 @@ describe("The 'ReferenceTracker' class:", () => {
                 },
                 expected: [],
             },
-            ...(semver.gte(eslint.Linter.version, "7.0.0")
+            ...(isESLint7
                 ? [
                       {
                           description:
@@ -722,10 +758,11 @@ describe("The 'ReferenceTracker' class:", () => {
                     "require('xxx');",
                     "const abc = require('abc');",
                     "const def = require();", // no require id
+                    "require('ghi')();", // direct call
                     "abc();",
                     "new abc();",
                     "(abc.xyz || abc.ghi ? abc.jkl : abc.mno), abc.pqr;",
-                    ...(semver.gte(eslint.Linter.version, "6.0.0")
+                    ...(isESLint6
                         ? [
                               "abc?.xyz;",
                               "abc?.();",
@@ -749,6 +786,9 @@ describe("The 'ReferenceTracker' class:", () => {
                     },
                     def: {
                         [READ]: 1,
+                    },
+                    ghi: {
+                        [CALL]: 2,
                     },
                 },
                 expected: [
@@ -800,7 +840,7 @@ describe("The 'ReferenceTracker' class:", () => {
                         type: READ,
                         info: 9,
                     },
-                    ...(semver.gte(eslint.Linter.version, "6.0.0")
+                    ...(isESLint6
                         ? [
                               {
                                   node: {
@@ -846,6 +886,12 @@ describe("The 'ReferenceTracker' class:", () => {
                               },
                           ]
                         : []),
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["ghi"],
+                        type: CALL,
+                        info: 2,
+                    },
                 ],
             },
             {
@@ -1140,7 +1186,7 @@ describe("The 'ReferenceTracker' class:", () => {
             {
                 description:
                     "should iterate the references of a given ES modules, with ExportNamedDeclaration.",
-                code: "export {a, b, c} from 'abc';",
+                code: "export {a, b, c, e} from 'abc';",
                 traceMap: {
                     abc: {
                         [ESM]: true,
@@ -1151,6 +1197,50 @@ describe("The 'ReferenceTracker' class:", () => {
                         b: { [CALL]: 2 },
                         c: { [CONSTRUCT]: 3 },
                         d: { [READ]: 5 },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "ExportSpecifier" },
+                        path: ["abc", "a"],
+                        type: READ,
+                        info: 1,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate all references of a given ES modules, with ExportNamedDeclaration.",
+                code: "export {a} from 'abc';",
+                traceMap: {
+                    abc: {
+                        [ESM]: true,
+                        [ReferenceTracker.SingleLevelWildcard]: {
+                            [READ]: 1,
+                            [CALL]: 2,
+                        },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "ExportSpecifier" },
+                        path: ["abc", "a"],
+                        type: READ,
+                        info: 1,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate all references of a given ES modules, with ExportNamedDeclaration.",
+                code: "export {a} from 'abc';",
+                traceMap: {
+                    abc: {
+                        [ESM]: true,
+                        [ReferenceTracker.MultiLevelWildcard]: {
+                            [READ]: 1,
+                            [CALL]: 2,
+                        },
                     },
                 },
                 expected: [
@@ -1190,6 +1280,64 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["abc", "d"],
                         type: READ,
                         info: 5,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should ignore the references of a given ES modules with single level wildcard and ExportAllDeclaration.",
+                code: "export * from 'abc';",
+                traceMap: {
+                    abc: {
+                        [ESM]: true,
+                        [ReferenceTracker.SingleLevelWildcard]: { [READ]: 1 },
+                    },
+                },
+                expected: [],
+            },
+            {
+                description:
+                    "should iterate all references of a given ES modules with single level wildcard.",
+                code: [
+                    "import {default as abc} from 'abc';",
+                    "abc();",
+                    "abc.def();",
+                ].join("\n"),
+                traceMap: {
+                    abc: {
+                        [ESM]: true,
+                        [ReferenceTracker.SingleLevelWildcard]: {
+                            [CALL]: 2,
+                        },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["abc", "default"],
+                        type: CALL,
+                        info: 2,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate all references of a given ES modules with multi level wildcard.",
+                code: ["import abc from 'abc';", "abc.def();"].join("\n"),
+                traceMap: {
+                    abc: {
+                        [ESM]: true,
+                        [ReferenceTracker.MultiLevelWildcard]: {
+                            [CALL]: 2,
+                        },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["abc", "default", "def"],
+                        type: CALL,
+                        info: 2,
                     },
                 ],
             },

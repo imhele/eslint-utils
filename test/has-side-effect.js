@@ -4,6 +4,9 @@ import eslint from "eslint"
 import semver from "semver"
 import { hasSideEffect } from "../src/"
 
+const isESLint6 = semver.gte(eslint.Linter.version, "6.0.0")
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 describe("The 'hasSideEffect' function", () => {
     for (const { code, key = "body.0.expression", options, expected } of [
         {
@@ -47,7 +50,7 @@ describe("The 'hasSideEffect' function", () => {
             options: undefined,
             expected: true,
         },
-        ...(semver.gte(eslint.Linter.version, "6.0.0")
+        ...(isESLint6
             ? [
                   {
                       code: "f?.()",
@@ -61,7 +64,7 @@ describe("The 'hasSideEffect' function", () => {
             options: undefined,
             expected: true,
         },
-        ...(semver.gte(eslint.Linter.version, "6.0.0")
+        ...(isESLint6
             ? [
                   {
                       code: "a + f?.()",
@@ -80,7 +83,7 @@ describe("The 'hasSideEffect' function", () => {
             options: { considerGetters: true },
             expected: true,
         },
-        ...(semver.gte(eslint.Linter.version, "6.0.0")
+        ...(isESLint6
             ? [
                   {
                       code: "obj?.a",
@@ -109,7 +112,7 @@ describe("The 'hasSideEffect' function", () => {
             options: { considerImplicitTypeConversion: true },
             expected: true,
         },
-        ...(semver.gte(eslint.Linter.version, "6.0.0")
+        ...(isESLint6
             ? [
                   {
                       code: "obj?.[a]",
@@ -168,7 +171,7 @@ describe("The 'hasSideEffect' function", () => {
             options: { considerImplicitTypeConversion: true },
             expected: false,
         },
-        ...(semver.gte(eslint.Linter.version, "7.0.0")
+        ...(isESLint7
             ? [
                   {
                       code: "(class { x })",
@@ -298,11 +301,15 @@ describe("The 'hasSideEffect' function", () => {
             options: undefined,
             expected: true,
         },
-        {
-            code: "import('hello')",
-            options: undefined,
-            expected: true,
-        },
+        ...(isESLint6
+            ? [
+                  {
+                      code: "import('hello')",
+                      options: undefined,
+                      expected: true,
+                  },
+              ]
+            : []),
 
         // Skip the definition body.
         {
@@ -339,11 +346,7 @@ describe("The 'hasSideEffect' function", () => {
             const messages = linter.verify(code, {
                 env: { es6: true },
                 parserOptions: {
-                    ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                        ? 2022
-                        : semver.gte(eslint.Linter.version, "6.0.0")
-                        ? 2020
-                        : 2018,
+                    ecmaVersion: isESLint7 ? 2022 : isESLint6 ? 2020 : 2018,
                 },
                 rules: { test: "error" },
             })

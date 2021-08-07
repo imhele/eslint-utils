@@ -3,6 +3,8 @@ import eslint from "eslint"
 import semver from "semver"
 import { getFunctionHeadLocation } from "../src/"
 
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 describe("The 'getFunctionHeadLocation' function", () => {
     const expectedResults = {
         "function foo() {}": [0, 12],
@@ -48,7 +50,7 @@ describe("The 'getFunctionHeadLocation' function", () => {
         "class A { static async foo() {} }": [10, 26],
         "class A { static get foo() {} }": [10, 24],
         "class A { static set foo(a) {} }": [10, 24],
-        ...(semver.gte(eslint.Linter.version, "7.0.0")
+        ...(isESLint7
             ? {
                   "class A { #foo() {} }": [10, 14],
                   "class A { *#foo() {} }": [10, 15],
@@ -118,11 +120,7 @@ describe("The 'getFunctionHeadLocation' function", () => {
                 key,
                 {
                     rules: { test: "error" },
-                    parserOptions: {
-                        ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                            ? 2022
-                            : 2018,
-                    },
+                    parserOptions: { ecmaVersion: isESLint7 ? 2022 : 2018 },
                 },
                 "test.js",
                 true,

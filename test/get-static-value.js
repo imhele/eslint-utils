@@ -3,6 +3,9 @@ import eslint from "eslint"
 import semver from "semver"
 import { getStaticValue } from "../src/"
 
+const isESLint6 = semver.gte(eslint.Linter.version, "6.0.0")
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 describe("The 'getStaticValue' function", () => {
     for (const { code, expected, noScope = false } of [
         { code: "[]", expected: { value: [] } },
@@ -150,7 +153,7 @@ const aMap = Object.freeze({
             code: "RegExp.$1",
             expected: null,
         },
-        ...(semver.gte(eslint.Linter.version, "6.0.0")
+        ...(isESLint6
             ? [
                   {
                       code: "const a = null, b = 42; a ?? b",
@@ -250,7 +253,7 @@ const aMap = Object.freeze({
                   },
               ]
             : []),
-        ...(semver.gte(eslint.Linter.version, "7.0.0")
+        ...(isESLint7
             ? [
                   {
                       code: `class A {
@@ -308,11 +311,7 @@ const aMap = Object.freeze({
             const messages = linter.verify(code, {
                 env: { es6: true },
                 parserOptions: {
-                    ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                        ? 2022
-                        : semver.gte(eslint.Linter.version, "6.0.0")
-                        ? 2020
-                        : 2018,
+                    ecmaVersion: isESLint7 ? 2022 : isESLint6 ? 2020 : 2018,
                 },
                 rules: { test: "error" },
             })
@@ -322,7 +321,7 @@ const aMap = Object.freeze({
                 0,
                 messages[0] && messages[0].message,
             )
-            if (actual == null) {
+            if (expected == null) {
                 assert.strictEqual(actual, expected)
             } else {
                 assert.deepStrictEqual(actual, expected)

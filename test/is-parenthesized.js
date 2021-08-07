@@ -1,7 +1,19 @@
 import assert from "assert"
 import dotProp from "dot-prop"
 import eslint from "eslint"
+import semver from "semver"
 import { isParenthesized } from "../src/"
+
+const isESLint6 = semver.gte(eslint.Linter.version, "6.0.0")
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
+const config = {
+    env: { es6: true },
+    parserOptions: {
+        ecmaVersion: isESLint7 ? 2022 : isESLint6 ? 2020 : 2018,
+    },
+    rules: { test: "error" },
+}
 
 describe("The 'isParenthesized' function", () => {
     for (const { code, expected } of [
@@ -209,6 +221,18 @@ describe("The 'isParenthesized' function", () => {
                 "body.0.handler.param": false,
             },
         },
+        ...(isESLint6
+            ? [
+                  {
+                      code: "import((a))",
+                      expected: {
+                          "body.0": false,
+                          "body.0.expression": false,
+                          "body.0.expression.source": true,
+                      },
+                  },
+              ]
+            : []),
     ]) {
         describe(`on the code \`${code}\``, () => {
             for (const key of Object.keys(expected)) {
@@ -224,11 +248,7 @@ describe("The 'isParenthesized' function", () => {
                             )
                         },
                     }))
-                    const messages = linter.verify(code, {
-                        env: { es6: true },
-                        parserOptions: { ecmaVersion: 2018 },
-                        rules: { test: "error" },
-                    })
+                    const messages = linter.verify(code, config)
 
                     assert.strictEqual(
                         messages.length,
@@ -300,11 +320,7 @@ describe("The 'isParenthesized' function", () => {
                             )
                         },
                     }))
-                    const messages = linter.verify(code, {
-                        env: { es6: true },
-                        parserOptions: { ecmaVersion: 2018 },
-                        rules: { test: "error" },
-                    })
+                    const messages = linter.verify(code, config)
 
                     assert.strictEqual(
                         messages.length,
@@ -316,4 +332,18 @@ describe("The 'isParenthesized' function", () => {
             }
         })
     }
+
+    describe("times must be a number greater than 1", () => {
+        assert.throws(() => {
+            const linter = new eslint.Linter()
+
+            linter.defineRule("test", (context) => ({
+                Program(node) {
+                    isParenthesized(NaN, node, context.getSourceCode())
+                },
+            }))
+
+            linter.verify("", config)
+        }, "'times' should be a positive integer.")
+    })
 })

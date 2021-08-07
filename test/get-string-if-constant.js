@@ -65,4 +65,24 @@ describe("The 'getStringIfConstant' function", () => {
             })
         }
     })
+
+    describe("with babel parser", () => {
+        it("should return raw string from invalid regexp", () => {
+            const actual = getStringIfConstant({
+                type: "Literal",
+                start: 0,
+                end: 5,
+                loc: {
+                    start: { line: 1, column: 0 },
+                    end: { line: 1, column: 5 },
+                },
+                range: [0, 5],
+                value: null,
+                raw: "/(?)/",
+                regex: { pattern: "(?)", flags: "" },
+            })
+
+            assert.deepStrictEqual(actual, "/(?)/")
+        })
+    })
 })

@@ -3,6 +3,8 @@ import eslint from "eslint"
 import semver from "semver"
 import { getFunctionNameWithKind } from "../src/"
 
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 describe("The 'getFunctionNameWithKind' function", () => {
     const expectedResults = {
         "function foo() {}": "function 'foo'",
@@ -35,6 +37,7 @@ describe("The 'getFunctionNameWithKind' function", () => {
         "({ ['foo']: function() {} })": "method 'foo'",
         "({ [foo]: function() {} })": "method [foo]",
         "({ foo() {} })": "method 'foo'",
+        "({ [(a, \nb)]() {} })": "method",
         "({ foo: function* foo() {} })": "generator method 'foo'",
         "({ foo: function*() {} })": "generator method 'foo'",
         "({ ['foo']: function*() {} })": "generator method 'foo'",
@@ -65,7 +68,7 @@ describe("The 'getFunctionNameWithKind' function", () => {
         "class A { static get foo() {} }": "static getter 'foo'",
         "class A { static set foo(a) {} }": "static setter 'foo'",
 
-        ...(semver.gte(eslint.Linter.version, "7.0.0")
+        ...(isESLint7
             ? {
                   "class A { #foo() {} }": "private method #foo",
                   "class A { '#foo'() {} }": "method '#foo'",
@@ -138,11 +141,7 @@ describe("The 'getFunctionNameWithKind' function", () => {
             }))
             const messages = linter.verify(key, {
                 rules: { test: "error" },
-                parserOptions: {
-                    ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                        ? 2022
-                        : 2018,
-                },
+                parserOptions: { ecmaVersion: isESLint7 ? 2022 : 2018 },
             })
 
             assert.strictEqual(
@@ -167,11 +166,7 @@ describe("The 'getFunctionNameWithKind' function", () => {
             }))
             const messages = linter.verify(key, {
                 rules: { test: "error" },
-                parserOptions: {
-                    ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                        ? 2022
-                        : 2018,
-                },
+                parserOptions: { ecmaVersion: isESLint7 ? 2022 : 2018 },
             })
 
             assert.strictEqual(

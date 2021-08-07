@@ -3,6 +3,8 @@ import eslint from "eslint"
 import semver from "semver"
 import { getPropertyName } from "../src/"
 
+const isESLint7 = semver.gte(eslint.Linter.version, "7.0.0")
+
 describe("The 'getPropertyName' function", () => {
     for (const { code, expected } of [
         { code: "a.b", expected: "b" },
@@ -34,7 +36,7 @@ describe("The 'getPropertyName' function", () => {
         { code: "(class {['a' + 'b']() {}})", expected: "ab" },
         { code: "(class {[tag`b`]() {}})", expected: null },
         { code: "(class {[`${b}`]() {}})", expected: null }, //eslint-disable-line no-template-curly-in-string
-        ...(semver.gte(eslint.Linter.version, "7.0.0")
+        ...(isESLint7
             ? [
                   { code: "(class { x })", expected: "x" },
                   { code: "(class { static x })", expected: "x" },
@@ -67,11 +69,7 @@ describe("The 'getPropertyName' function", () => {
                 },
             }))
             const messages = linter.verify(code, {
-                parserOptions: {
-                    ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                        ? 2022
-                        : 2018,
-                },
+                parserOptions: { ecmaVersion: isESLint7 ? 2022 : 2018 },
                 rules: { test: "error" },
             })
             assert.strictEqual(
@@ -93,11 +91,7 @@ describe("The 'getPropertyName' function", () => {
             },
         }))
         const messages = linter.verify("123", {
-            parserOptions: {
-                ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
-                    ? 2022
-                    : 2018,
-            },
+            parserOptions: { ecmaVersion: isESLint7 ? 2022 : 2018 },
             rules: { test: "error" },
         })
         assert.strictEqual(
