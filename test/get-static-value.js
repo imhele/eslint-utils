@@ -82,6 +82,7 @@ describe("The 'getStaticValue' function", () => {
         { code: "Object.xxx", expected: { value: undefined } },
         { code: "new Array(2)", expected: null },
         { code: "new Array(len)", expected: null },
+        { code: "new RegExp('1', 'u')", expected: { value: /1/u } },
         { code: "({})", expected: { value: {} } },
         {
             code: "({a: 1, b: 2, c: 3})",
@@ -120,6 +121,10 @@ const aMap = Object.freeze({
 })
 ;\`on\${eventName} : \${aMap[eventName]}\``,
             expected: { value: "onclick : 777" },
+        },
+        {
+            code: "const freeze = Object.freeze; freeze({ a: 'b' }).a + 'c'",
+            expected: { value: "bc" },
         },
         {
             code: 'Function("return process.env.npm_name")()',
@@ -296,7 +301,7 @@ const aMap = Object.freeze({
                 ExpressionStatement(node) {
                     actual = getStaticValue(
                         node,
-                        noScope ? null : context.getScope(),
+                        noScope ? undefined : context.getScope(),
                     )
                 },
             }))

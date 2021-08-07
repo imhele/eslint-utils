@@ -61,6 +61,62 @@ describe("The 'ReferenceTracker' class:", () => {
             },
             {
                 description:
+                    "should iterate the references of a given multi level wildcard.",
+                code: "var x = Object; var y = Object.freeze; Object(); new Object()",
+                traceMap: {
+                    [ReferenceTracker.MultiLevelWildcard]: {
+                        [READ]: 1,
+                        [CALL]: 2,
+                        [CONSTRUCT]: 3,
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "Identifier" },
+                        path: ["Object"],
+                        type: READ,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "Identifier" },
+                        path: ["Object"],
+                        type: READ,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "Identifier" },
+                        path: ["Object"],
+                        type: READ,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["Object"],
+                        type: CALL,
+                        info: 2,
+                    },
+                    {
+                        node: { type: "Identifier" },
+                        path: ["Object"],
+                        type: READ,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "NewExpression" },
+                        path: ["Object"],
+                        type: CONSTRUCT,
+                        info: 3,
+                    },
+                    {
+                        node: { type: "MemberExpression" },
+                        path: ["Object", "freeze"],
+                        type: READ,
+                        info: 1,
+                    },
+                ],
+            },
+            {
+                description:
                     "should iterate the member references of a given global variable, with MemberExpression",
                 code: [
                     "Object.a; Object.a(); new Object.a();",
@@ -582,6 +638,24 @@ describe("The 'ReferenceTracker' class:", () => {
             },
             {
                 description:
+                    "should not iterate the references of a given single level wildcard if it's modified.",
+                code: [
+                    "Object = {}",
+                    "Object.a",
+                    "Object.b()",
+                    "new Object.c()",
+                ].join("\n"),
+                traceMap: {
+                    [ReferenceTracker.SingleLevelWildcard]: {
+                        [READ]: 1,
+                        [CALL]: 2,
+                        [CONSTRUCT]: 3,
+                    },
+                },
+                expected: [],
+            },
+            {
+                description:
                     "should not iterate the references through unary/binary expressions.",
                 code: [
                     'var construct = typeof Reflect !== "undefined" ? Reflect.construct : undefined',
@@ -645,10 +719,12 @@ describe("The 'ReferenceTracker' class:", () => {
                     "should iterate the references of a given CJS modules.",
                 code: [
                     "/*global require */",
+                    "require('xxx');",
                     "const abc = require('abc');",
+                    "const def = require();", // no require id
                     "abc();",
                     "new abc();",
-                    "abc.xyz;",
+                    "(abc.xyz || abc.ghi ? abc.jkl : abc.mno), abc.pqr;",
                     ...(semver.gte(eslint.Linter.version, "6.0.0")
                         ? [
                               "abc?.xyz;",
@@ -665,7 +741,14 @@ describe("The 'ReferenceTracker' class:", () => {
                         [CALL]: 2,
                         [CONSTRUCT]: 3,
                         xyz: { [READ]: 4 },
+                        ghi: { [READ]: 6 },
+                        jkl: { [READ]: 7 },
+                        mno: { [READ]: 8 },
+                        pqr: { [READ]: 9 },
                         def: { ghi: { [READ]: 5 } },
+                    },
+                    def: {
+                        [READ]: 1,
                     },
                 },
                 expected: [
@@ -692,6 +775,30 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["abc", "xyz"],
                         type: READ,
                         info: 4,
+                    },
+                    {
+                        node: { type: "MemberExpression" },
+                        path: ["abc", "ghi"],
+                        type: READ,
+                        info: 6,
+                    },
+                    {
+                        node: { type: "MemberExpression" },
+                        path: ["abc", "jkl"],
+                        type: READ,
+                        info: 7,
+                    },
+                    {
+                        node: { type: "MemberExpression" },
+                        path: ["abc", "mno"],
+                        type: READ,
+                        info: 8,
+                    },
+                    {
+                        node: { type: "MemberExpression" },
+                        path: ["abc", "pqr"],
+                        type: READ,
+                        info: 9,
                     },
                     ...(semver.gte(eslint.Linter.version, "6.0.0")
                         ? [
@@ -781,6 +888,28 @@ describe("The 'ReferenceTracker' class:", () => {
                 },
                 expected: [],
             },
+            {
+                description:
+                    "should iterate the references of a given CJS modules with single level wildcard.",
+                code: [
+                    "/*global require */",
+                    "const def = require('abc');",
+                    "def()",
+                ].join("\n"),
+                traceMap: {
+                    [ReferenceTracker.SingleLevelWildcard]: {
+                        [READ]: 1,
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["abc"],
+                        type: READ,
+                        info: 1,
+                    },
+                ],
+            },
         ]) {
             it(description, () => {
                 const linter = new eslint.Linter()
@@ -817,6 +946,7 @@ describe("The 'ReferenceTracker' class:", () => {
                     "should iterate the references of a given ES modules (with CJS module and the default export).",
                 code: [
                     "import abc from 'abc';",
+                    "import unused from 'unused';",
                     "abc();",
                     "new abc();",
                     "abc.xyz;",
@@ -1060,6 +1190,34 @@ describe("The 'ReferenceTracker' class:", () => {
                         path: ["abc", "d"],
                         type: READ,
                         info: 5,
+                    },
+                ],
+            },
+            {
+                description:
+                    "should iterate the references of a given ES modules with single level wildcard.",
+                code: ["import def from 'abc';", "def();"].join("\n"),
+                traceMap: {
+                    [ReferenceTracker.SingleLevelWildcard]: {
+                        [ESM]: true,
+                        default: {
+                            [READ]: 1,
+                            [CALL]: 2,
+                        },
+                    },
+                },
+                expected: [
+                    {
+                        node: { type: "ImportDefaultSpecifier" },
+                        path: ["abc", "default"],
+                        type: READ,
+                        info: 1,
+                    },
+                    {
+                        node: { type: "CallExpression" },
+                        path: ["abc", "default"],
+                        type: CALL,
+                        info: 2,
                     },
                 ],
             },

@@ -1,7 +1,7 @@
 import assert from "assert"
+import dp from "dot-prop"
 import eslint from "eslint"
 import semver from "semver"
-import dp from "dot-prop"
 import { hasSideEffect } from "../src/"
 
 describe("The 'hasSideEffect' function", () => {
@@ -295,6 +295,11 @@ describe("The 'hasSideEffect' function", () => {
         },
         {
             code: "(a, b, ++c)",
+            options: undefined,
+            expected: true,
+        },
+        {
+            code: "import('hello')",
             options: undefined,
             expected: true,
         },

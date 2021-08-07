@@ -82,4 +82,29 @@ describe("The 'getPropertyName' function", () => {
             assert.strictEqual(actual, expected)
         })
     }
+
+    it("should return null from 123", () => {
+        const linter = new eslint.Linter()
+
+        let actual = null
+        linter.defineRule("test", () => ({
+            Literal(node) {
+                actual = getPropertyName(node)
+            },
+        }))
+        const messages = linter.verify("123", {
+            parserOptions: {
+                ecmaVersion: semver.gte(eslint.Linter.version, "7.0.0")
+                    ? 2022
+                    : 2018,
+            },
+            rules: { test: "error" },
+        })
+        assert.strictEqual(
+            messages.length,
+            0,
+            messages[0] && messages[0].message,
+        )
+        assert.strictEqual(actual, null)
+    })
 })
